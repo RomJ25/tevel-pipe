@@ -115,7 +115,13 @@ Columns: `call_id, pstn_A, pstn_B, IntelliItemContent, IntelliItemCreationTime`
 ב - זוהה / אבו-אחמד
 ```
 
-The `א -` marks side A's name, `ב -` marks side B's name. The `/` separates metadata from the name.
+The `א -` marks side A's name, `ב -` marks side B's name. The `/` separates metadata from the actual name (the text before `/` is ignored — "זוהה" means "identified" but any text works there).
+
+Example complete CSV row (note: newline between א and ב lines must be inside quotes):
+```csv
+c009,050-1111111,050-7777777,"א - זוהה / שם צד א
+ב - זוהה / שם צד ב",2024-01-20 10:00:00
+```
 
 ### point_cube5.csv (REQUIRED) — config
 
