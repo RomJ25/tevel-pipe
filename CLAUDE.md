@@ -14,6 +14,16 @@ This pipeline processes **phone call records** to figure out **who spoke in each
 - **BLMZ** (בלמ״ז): Unidentified speaker. Always kept separate from real identities.
 - **Side A / Side B**: The two parties in a phone call. Side A is usually the monitored number.
 
+## Setup
+
+1. This folder must be inside the tevel/ project as `tevel/test/`
+2. Install dependencies: `pip install -r requirements.txt`
+3. The pipeline scripts must exist at their expected paths:
+   - `../point to algorithm/point.py`
+   - `../Algorithm/algorithem_og.py`
+
+If anything is missing, `python run.py` will tell you exactly what's wrong.
+
 ## Quick start
 
 ```bash

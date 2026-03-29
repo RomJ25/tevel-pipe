@@ -43,6 +43,36 @@ ALGO_DIR = os.path.join(TEVEL_DIR, "Algorithm")
 INPUT_DIR = os.path.join(SCRIPT_DIR, "input")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 
+
+def check_setup():
+    """Verify pipeline scripts exist and dependencies are installed."""
+    # Check pipeline scripts
+    for name, dirpath, filename in [
+        ("point.py", POINT_DIR, "point.py"),
+        ("algorithem_og.py", ALGO_DIR, "algorithem_og.py"),
+    ]:
+        full = os.path.join(dirpath, filename)
+        if not os.path.exists(full):
+            print(f"\nERROR: Cannot find {name} at {full}")
+            print(f"\n  This folder must be inside the tevel/ project:")
+            print(f"    tevel/")
+            print(f"    ├── test/                        ← you are here")
+            print(f"    ├── point to algorithm/point.py")
+            print(f"    └── Algorithm/algorithem_og.py")
+            sys.exit(1)
+
+    # Check Python dependencies
+    missing = []
+    for pkg in ["pandas", "numpy", "scipy", "networkx", "sklearn"]:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(f"\nERROR: Missing packages: {', '.join(missing)}")
+        print(f"  Install: pip install -r requirements.txt")
+        sys.exit(1)
+
 # Point.py expects UUID column names in cube1.
 # Fixture CSVs use human-readable names. This maps readable -> UUID.
 POINT_UUID_COLUMNS = {
@@ -445,6 +475,7 @@ def cmd_inspect(args):
 
 
 def main():
+    check_setup()
     parser = argparse.ArgumentParser(
         description="Pipeline test: point.py -> algorithem_og.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
