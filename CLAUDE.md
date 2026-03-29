@@ -71,6 +71,14 @@ You will see output like this:
 | `python run.py inspect --name "אבו"` | Filter results by name substring |
 | `python run.py inspect --phone 5011` | Filter results by phone substring |
 
+### Slash commands (for Claude Code)
+
+| Command | What it does |
+|---------|-------------|
+| `/run` | Run the full pipeline and show results |
+| `/debug <name>` | Debug why a specific entity is resolved incorrectly |
+| `/add-test <description>` | Add a new test case to the input data |
+
 ## Files
 
 | File/Folder | What it is |
@@ -142,10 +150,11 @@ Contacts saved on phones. Used by the algorithm to match names against known con
 The scripts are included in this folder:
 - **point.py** — name extraction (1963 lines)
 - **algorithem_og.py** — entity resolution (8800+ lines)
+- **ALGORITHM_GUIDE.md** — condensed algorithm reference (stages, thresholds, key functions)
 
-Edit them directly, then run `python run.py` again. Changes are picked up automatically.
+Edit the scripts directly, then run `python run.py` again. Changes are picked up automatically.
 
-If this folder is inside `tevel/`, you can also find the algorithm docs at `../Algorithm/CLAUDE.md`.
+**To understand the algorithm**: read `ALGORITHM_GUIDE.md` first. It explains the 10 pipeline stages, key thresholds, the constraint system, and where to look for common issues.
 
 ## Troubleshooting
 
