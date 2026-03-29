@@ -3,5 +3,4 @@ numpy
 scipy
 networkx
 scikit-learn
-# Optional: rapidfuzz (faster fuzzy matching, algorithm falls back to difflib without it)
-# rapidfuzz
+requests
