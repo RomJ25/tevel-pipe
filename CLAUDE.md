@@ -22,14 +22,11 @@ Both scripts are **PythonCube scripts**: `def main(cubes):` receives a dict of D
 1. Install dependencies: `pip install -r requirements.txt`
 2. Run: `python run.py`
 
-The pipeline scripts (`point.py`, `algorithem_og.py`) are included in this folder. If you want to use updated versions from the tevel/ project instead, remove the local copies — run.py will automatically fall back to `../point to algorithm/point.py` and `../Algorithm/algorithem_og.py`.
-
 If anything is missing, `python run.py` will tell you exactly what's wrong.
 
 ## Quick start
 
 ```bash
-cd test
 python run.py
 ```
 
@@ -74,14 +71,14 @@ You will see output like this:
 | `python run.py inspect --name "אבו"` | Filter results by name substring |
 | `python run.py inspect --phone 5011` | Filter results by phone substring |
 
-### Slash commands (for Claude Code)
+### Slash commands (type these in the Claude Code prompt for step-by-step guidance)
 
 | Command | What it does |
 |---------|-------------|
 | `/run` | Run the full pipeline and show results |
-| `/debug <name>` | Debug why a specific entity is resolved incorrectly |
-| `/add-test <description>` | Add a new test case to the input data |
-| `/fix-script` | Guide for editing point.py or algorithem_og.py (PythonCube rules) |
+| `/debug <name>` | Step-by-step guide to debug a specific entity |
+| `/add-test <description>` | Step-by-step guide to add a new test case |
+| `/fix-script` | PythonCube rules and code locations for editing the scripts |
 
 ## Files
 
@@ -98,7 +95,12 @@ You will see output like this:
 
 ## Input CSV files (drop in input/)
 
-How they connect: `point_cube1` has the raw calls. `point_cube5` says which phone is "ours". `point_cube3` + `point_cube4` together tell the pipeline "person X was in call Y" (cube4 links calls to cube3 entities). `algo_cube2` is a separate phonebook the algorithm uses to match names.
+How the input files connect:
+- `point_cube1` — the raw call data (required)
+- `point_cube5` — tells the pipeline which phone number is "ours" (required)
+- `point_cube3` — a directory of known people with names, nicknames, IDs
+- `point_cube4` — links specific calls to specific people in cube3
+- `algo_cube2` — a separate phonebook (contacts saved on phones)
 
 ### point_cube1.csv (REQUIRED) — call transcript data
 
@@ -145,20 +147,19 @@ Contacts saved on phones. Used by the algorithm to match names against known con
 2. Run `python run.py inspect --name "אבו-אחמד"` to see the current result
 3. Check `output/algo_input.csv` to see what data the algorithm received
 4. Check `output/algo_log.txt` for scoring/merge details
-5. Edit the algorithm: `../Algorithm/algorithem_og.py`
+5. Edit `algorithem_og.py` in this folder (see `ALGORITHM_GUIDE.md` for where to look)
 6. Run `python run.py` again to see if the fix worked
 7. Compare the new results with step 2
 
-## Where the pipeline scripts live
+## Pipeline scripts (in this folder)
 
-The scripts are included in this folder:
-- **point.py** — name extraction (1963 lines)
-- **algorithem_og.py** — entity resolution (8800+ lines)
-- **ALGORITHM_GUIDE.md** — condensed algorithm reference (stages, thresholds, key functions)
+- **point.py** — Stage 1: name extraction (1963 lines). Edit directly.
+- **algorithem_og.py** — Stage 2: entity resolution (8800+ lines). Edit directly.
+- **ALGORITHM_GUIDE.md** — condensed reference: pipeline stages, thresholds, constraint system, key functions.
 
-Edit the scripts directly, then run `python run.py` again. Changes are picked up automatically.
+After editing, run `python run.py` to see the effect. Changes are picked up automatically.
 
-**To understand the algorithm**: read `ALGORITHM_GUIDE.md` first. It explains the 10 pipeline stages, key thresholds, the constraint system, and where to look for common issues.
+**To understand the algorithm before editing**: read `ALGORITHM_GUIDE.md`. It explains what each stage does, which thresholds control what, and where to look in the code for common issues.
 
 ## Troubleshooting
 
