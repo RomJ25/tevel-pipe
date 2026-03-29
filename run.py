@@ -35,9 +35,17 @@ import pandas as pd
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEVEL_DIR = os.path.dirname(SCRIPT_DIR)
 
-# Where the actual pipeline scripts live
-POINT_DIR = os.path.join(TEVEL_DIR, "point to algorithm")
-ALGO_DIR = os.path.join(TEVEL_DIR, "Algorithm")
+# Where the pipeline scripts live.
+# Look locally first (self-contained), then fall back to parent tevel/ project.
+if os.path.exists(os.path.join(SCRIPT_DIR, "point.py")):
+    POINT_DIR = SCRIPT_DIR
+else:
+    POINT_DIR = os.path.join(TEVEL_DIR, "point to algorithm")
+
+if os.path.exists(os.path.join(SCRIPT_DIR, "algorithem_og.py")):
+    ALGO_DIR = SCRIPT_DIR
+else:
+    ALGO_DIR = os.path.join(TEVEL_DIR, "Algorithm")
 
 # Where CSVs go
 INPUT_DIR = os.path.join(SCRIPT_DIR, "input")
@@ -46,17 +54,18 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 
 def check_setup():
     """Verify pipeline scripts exist and dependencies are installed."""
-    # Check pipeline scripts
+    # Check pipeline scripts exist (locally or in parent project)
     for name, dirpath, filename in [
         ("point.py", POINT_DIR, "point.py"),
         ("algorithem_og.py", ALGO_DIR, "algorithem_og.py"),
     ]:
         full = os.path.join(dirpath, filename)
         if not os.path.exists(full):
-            print(f"\nERROR: Cannot find {name} at {full}")
-            print(f"\n  This folder must be inside the tevel/ project:")
+            print(f"\nERROR: Cannot find {name}")
+            print(f"  Looked in: {dirpath}")
+            print(f"\n  Either place {name} in this folder, or put this folder inside tevel/:")
             print(f"    tevel/")
-            print(f"    ├── test/                        ← you are here")
+            print(f"    ├── test/                        ← this folder")
             print(f"    ├── point to algorithm/point.py")
             print(f"    └── Algorithm/algorithem_og.py")
             sys.exit(1)

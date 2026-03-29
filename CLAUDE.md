@@ -16,11 +16,10 @@ This pipeline processes **phone call records** to figure out **who spoke in each
 
 ## Setup
 
-1. This folder must be inside the tevel/ project as `tevel/test/`
-2. Install dependencies: `pip install -r requirements.txt`
-3. The pipeline scripts must exist at their expected paths:
-   - `../point to algorithm/point.py`
-   - `../Algorithm/algorithem_og.py`
+1. Install dependencies: `pip install -r requirements.txt`
+2. Run: `python run.py`
+
+The pipeline scripts (`point.py`, `algorithem_og.py`) are included in this folder. If you want to use updated versions from the tevel/ project instead, remove the local copies — run.py will automatically fall back to `../point to algorithm/point.py` and `../Algorithm/algorithem_og.py`.
 
 If anything is missing, `python run.py` will tell you exactly what's wrong.
 
@@ -140,13 +139,13 @@ Contacts saved on phones. Used by the algorithm to match names against known con
 
 ## Where the pipeline scripts live
 
-The actual code lives outside this folder. Edit there, then re-run here:
+The scripts are included in this folder:
+- **point.py** — name extraction (1963 lines)
+- **algorithem_og.py** — entity resolution (8800+ lines)
 
-- **point.py**: `../point to algorithm/point.py` (name extraction, 1963 lines)
-- **algorithm**: `../Algorithm/algorithem_og.py` (entity resolution, 8800+ lines)
-- **algorithm docs**: `../Algorithm/CLAUDE.md` (detailed docs on all algorithm logic, thresholds, fixes)
+Edit them directly, then run `python run.py` again. Changes are picked up automatically.
 
-Changes are picked up automatically on re-run (no restart needed).
+If this folder is inside `tevel/`, you can also find the algorithm docs at `../Algorithm/CLAUDE.md`.
 
 ## Troubleshooting
 
