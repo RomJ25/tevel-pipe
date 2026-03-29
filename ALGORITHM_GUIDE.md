@@ -68,8 +68,8 @@ Three components (weights must sum to 1.0):
 | `main(cubes)` | Entry point. Validates input, runs pipeline. |
 | `EntityResolutionPipeline.run()` | Executes all stages in order. |
 | `SimilarityScorer.compute()` | Computes similarity between two mentions. |
-| `HacClusterer.cluster()` | Per-phone hierarchical clustering. |
-| `EntityResolver._resolve_cluster()` | Assigns VERIFIED/PHONEBOOK/INFERRED to a cluster. |
+| `HacClusterer.cluster_with_constraints()` | Per-phone hierarchical clustering. |
+| `EntityResolver._resolve_as_verified/phonebook/inferred()` | Assigns resolution type to a cluster. |
 | `Cube2Matcher.match()` | Matches a cluster against phonebook contacts. |
 | `variant_aware_cluster_score()` | Scores two clusters for cross-phone linking. |
 | `cohesion_gate_passes()` | Prevents weak bridges between clusters. |
