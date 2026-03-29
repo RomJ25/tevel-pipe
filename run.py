@@ -120,13 +120,16 @@ def load_csv(filename, required=True):
     path = os.path.join(INPUT_DIR, filename)
     if not os.path.exists(path):
         if required:
-            available = [f for f in os.listdir(INPUT_DIR) if f.endswith('.csv')]
+            if os.path.isdir(INPUT_DIR):
+                available = [f for f in os.listdir(INPUT_DIR) if f.endswith('.csv')]
+            else:
+                available = []
             print(f"\nERROR: Cannot find {path}")
             print(f"  This file is REQUIRED.")
             print(f"  Available files in input/: {available or '(none)'}")
             sys.exit(1)
         return None
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, encoding='utf-8-sig')
     return df
 
 
@@ -335,9 +338,10 @@ def run_algo_stage(algo_input_df=None):
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(log_buf.getvalue())
 
-    # Check for error
-    if "error" in result.columns:
-        print(f"\n  ERROR from algorithm: {result['error'].iloc[0]}")
+    # Check for error (algorithm uses '_error' column, point.py uses 'error')
+    if "_error" in result.columns:
+        msg = result['_error_message'].iloc[0] if '_error_message' in result.columns else 'unknown'
+        print(f"\n  ERROR from algorithm: {msg}")
         print(f"  See log: {log_path}")
         sys.exit(1)
 
@@ -401,7 +405,7 @@ def print_results_table(df, name_filter=None, phone_filter=None, max_rows=40):
         mask = pd.Series(False, index=view.index)
         for col in ["resolved_name", "raw_clean_name", "verified_name_call"]:
             if col in df.columns:
-                mask |= df[col].astype(str).str.contains(name_filter, na=False)
+                mask |= df[col].astype(str).str.contains(name_filter, na=False, regex=False)
         view = view[mask]
         print(f"  (filtered by name: '{name_filter}' -> {len(view)} rows)")
 
@@ -409,7 +413,7 @@ def print_results_table(df, name_filter=None, phone_filter=None, max_rows=40):
         mask = pd.Series(False, index=view.index)
         for col in ["speaker_phone", "other_phone"]:
             if col in df.columns:
-                mask |= df[col].astype(str).str.contains(phone_filter, na=False)
+                mask |= df[col].astype(str).str.contains(phone_filter, na=False, regex=False)
         view = view[mask]
         print(f"  (filtered by phone: '{phone_filter}' -> {len(view)} rows)")
 
@@ -484,7 +488,6 @@ def cmd_inspect(args):
 
 
 def main():
-    check_setup()
     parser = argparse.ArgumentParser(
         description="Pipeline test: point.py -> algorithem_og.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -504,6 +507,10 @@ Examples:
     parser.add_argument("--phone", default=None,
                         help="Filter results by phone substring")
     args = parser.parse_args()
+
+    # Only check setup for commands that need the pipeline scripts
+    if args.action != "inspect":
+        check_setup()
 
     if args.action == "full":
         cmd_full(args)
