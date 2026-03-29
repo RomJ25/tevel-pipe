@@ -14,6 +14,9 @@ This pipeline processes **phone call records** to figure out **who spoke in each
 - **BLMZ** (בלמ״ז): Unidentified speaker. Always kept separate from real identities.
 - **Side A / Side B**: The two parties in a phone call. Side A is usually the monitored number.
 
+### PythonCube format
+Both scripts are **PythonCube scripts**: `def main(cubes):` receives a dict of DataFrames, returns a DataFrame. The test runner (`run.py`) builds the `cubes` dict from the CSV files in `input/` and calls `main(cubes)`. Use `/fix-script` when editing them.
+
 ## Setup
 
 1. Install dependencies: `pip install -r requirements.txt`
@@ -78,6 +81,7 @@ You will see output like this:
 | `/run` | Run the full pipeline and show results |
 | `/debug <name>` | Debug why a specific entity is resolved incorrectly |
 | `/add-test <description>` | Add a new test case to the input data |
+| `/fix-script` | Guide for editing point.py or algorithem_og.py (PythonCube rules) |
 
 ## Files
 
