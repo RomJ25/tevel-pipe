@@ -1,3 +1,14 @@
 output/
 __pycache__/
 *.pyc
+*.pyo
+.DS_Store
+.env
+venv/
+.venv/
+.vscode/
+.idea/
+*.egg-info/
+.pytest_cache/
+dist/
+build/

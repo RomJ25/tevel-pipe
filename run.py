@@ -129,7 +129,12 @@ def load_csv(filename, required=True):
             print(f"  Available files in input/: {available or '(none)'}")
             sys.exit(1)
         return None
-    df = pd.read_csv(path, encoding='utf-8-sig')
+    try:
+        df = pd.read_csv(path, encoding='utf-8-sig')
+    except Exception as e:
+        print(f"\nERROR: Cannot read {path}")
+        print(f"  {type(e).__name__}: {e}")
+        sys.exit(1)
     return df
 
 
@@ -196,14 +201,18 @@ def map_point_to_algo(point_df):
 
 def import_point():
     """Import point.py from its directory. Returns the module."""
-    # Clear cached module so re-runs pick up edits
     if "point" in sys.modules:
         del sys.modules["point"]
     sys.path.insert(0, POINT_DIR)
     try:
         import point as mod
+    except Exception as e:
+        print(f"\nERROR: Failed to import point.py")
+        print(f"  {type(e).__name__}: {e}")
+        sys.exit(1)
     finally:
-        sys.path.pop(0)
+        if POINT_DIR in sys.path:
+            sys.path.remove(POINT_DIR)
     return mod
 
 
@@ -214,8 +223,13 @@ def import_algorithm():
     sys.path.insert(0, ALGO_DIR)
     try:
         import algorithem_og as mod
+    except Exception as e:
+        print(f"\nERROR: Failed to import algorithem_og.py")
+        print(f"  {type(e).__name__}: {e}")
+        sys.exit(1)
     finally:
-        sys.path.pop(0)
+        if ALGO_DIR in sys.path:
+            sys.path.remove(ALGO_DIR)
     return mod
 
 
