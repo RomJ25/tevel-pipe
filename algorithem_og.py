@@ -4018,26 +4018,31 @@ class Cube2Matcher:
         # If token_set_ratio indicates high-confidence subset match (>=90%),
         # trust it more heavily to overcome the length penalty from fuzz.ratio.
         # Fix 29.18: Weighted scoring with containment + subset boost.
-        # When token overlap is near-perfect AND one is a true subset, use 0.1/0.9
-        # weighting to overcome fuzz.ratio penalties from length/repeated tokens.
-        # Fix 32.1: Only apply subset boost when the SHORTER text has ≥2 tokens.
-        # A singleton like "אחמד" is trivially a subset of any name containing "אחמד",
-        # giving 0.96+ scores that bypass entity_id safety gates (0.92 threshold).
-        # Multi-token subsets ("אחמד כהן" ⊂ "אחמד חוסין כהן") still get the boost.
+        # Fix 32.1b: Hard-cap singleton scores at 0.85. A singleton like "אחמד"
+        # must NEVER score ≥0.92 against any multi-token contact, regardless of
+        # which scoring path fires. The 0.85 cap is below the 0.92 entity_id
+        # bypass threshold while still allowing phonebook name resolution (≥0.75).
+        # Also catches concatenated singletons ("אחמדכהן") on the ≥0.90 path,
+        # and long singletons vs short-extra-token contacts ("אבראהים" vs "אבראהים א").
         def _weighted_score(ratio, token_ratio, t1_norm, t2_norm):
+            t1 = set(t1_norm.split())
+            t2 = set(t2_norm.split())
+            shorter_len = min(len(t1), len(t2))
+
             if token_ratio >= 0.99:
-                t1 = set(t1_norm.split())
-                t2 = set(t2_norm.split())
-                shorter_len = min(len(t1), len(t2))
                 if t1.issubset(t2) or t2.issubset(t1):
                     if shorter_len >= 2:
                         return 0.1 * ratio + 0.9 * token_ratio
-                    # Singleton subset: use standard weighting (no boost)
-                    return 0.5 * ratio + 0.5 * token_ratio
                 return 0.2 * ratio + 0.8 * token_ratio
             elif token_ratio >= 0.90:
                 return 0.2 * ratio + 0.8 * token_ratio
-            return 0.5 * ratio + 0.5 * token_ratio
+            score = 0.5 * ratio + 0.5 * token_ratio
+
+            # Singleton hard cap: prevents entity_id bypass (0.92) and
+            # high-score corroboration for single-token matches
+            if shorter_len <= 1:
+                return min(0.85, score)
+            return score
 
         score1 = _weighted_score(ratio1, token_ratio1, text1_norm, text2_norm)
 
@@ -5482,6 +5487,23 @@ class EntityResolver:
                         family_match_score = _char_ratio(cluster_family, contact_family)
                         if family_match_score >= 85:
                             nickname_safe = True
+            # Fix 32.3b: Singleton entity_id guard for CALL_VERIFIED path.
+            # This path returns BEFORE the main Fix 32.3 guard at line ~5332,
+            # so singletons must be checked here too.
+            all_singleton_mentions = True
+            for m in cluster.mentions:
+                if not m.tokens:
+                    continue
+                if len(m.tokens) >= 2:
+                    all_singleton_mentions = False
+                    break
+                tok = m.tokens[0]
+                if tok.startswith('אבו-') or tok == 'אבו':
+                    all_singleton_mentions = False
+                    break
+            if all_singleton_mentions:
+                nickname_safe = False  # Block entity_id for singletons
+
             # Fix 29.8: High-score corroboration — score ≥0.92 is strong identity evidence
             if nickname_safe or (cube2_match.score >= 0.92):
                 cluster.verified_entity_id = cube2_match.entity_id
