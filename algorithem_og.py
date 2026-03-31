@@ -4020,12 +4020,20 @@ class Cube2Matcher:
         # Fix 29.18: Weighted scoring with containment + subset boost.
         # When token overlap is near-perfect AND one is a true subset, use 0.1/0.9
         # weighting to overcome fuzz.ratio penalties from length/repeated tokens.
+        # Fix 32.1: Only apply subset boost when the SHORTER text has ≥2 tokens.
+        # A singleton like "אחמד" is trivially a subset of any name containing "אחמד",
+        # giving 0.96+ scores that bypass entity_id safety gates (0.92 threshold).
+        # Multi-token subsets ("אחמד כהן" ⊂ "אחמד חוסין כהן") still get the boost.
         def _weighted_score(ratio, token_ratio, t1_norm, t2_norm):
             if token_ratio >= 0.99:
                 t1 = set(t1_norm.split())
                 t2 = set(t2_norm.split())
+                shorter_len = min(len(t1), len(t2))
                 if t1.issubset(t2) or t2.issubset(t1):
-                    return 0.1 * ratio + 0.9 * token_ratio
+                    if shorter_len >= 2:
+                        return 0.1 * ratio + 0.9 * token_ratio
+                    # Singleton subset: use standard weighting (no boost)
+                    return 0.5 * ratio + 0.5 * token_ratio
                 return 0.2 * ratio + 0.8 * token_ratio
             elif token_ratio >= 0.90:
                 return 0.2 * ratio + 0.8 * token_ratio
@@ -7267,8 +7275,10 @@ class EntityResolver:
         """
         if not ambiguity_gate:
             return False
-        if cube2_match.entity_id:
-            return False
+        # Fix 32.2: Do NOT bypass ambiguity gate for entity_id contacts.
+        # Entity_id contacts are the MOST dangerous (they cascade via Phase 0
+        # hard-link), so ambiguity detection must apply to them especially.
+        # Previously: "if cube2_match.entity_id: return False" — REMOVED.
 
         contact_sig = self._head_signature_from_tokens(getattr(cube2_match, 'tokens', []) or [])
         phone_sigs = ambiguity_gate.phone_token_signatures.get(phone, {})
