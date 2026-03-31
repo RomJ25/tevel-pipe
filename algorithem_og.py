@@ -5329,6 +5329,31 @@ class EntityResolver:
             if reason not in cluster.flags:
                 cluster.flags.append(reason)
 
+        # Fix 32.3: Singleton entity_id guard — when ALL mentions are
+        # single-token common names (no family name, no kunya), do NOT
+        # propagate entity_id from phonebook. A singleton like "אחמד"
+        # could be any of several people sharing that given name.
+        # Preserves PHONEBOOK resolution (correct canonical name) but
+        # strips entity_id to prevent Phase 0 cascade across phones.
+        # Cube1 entity_id (mention-level) is unaffected — extracted inside each path.
+        # Kunya mentions (אבו-X) are NOT stripped — they are specific identifiers.
+        if cube2_match and cube2_match.entity_id:
+            all_singleton = True
+            for m in cluster.mentions:
+                if not m.tokens:
+                    continue
+                if len(m.tokens) >= 2:
+                    all_singleton = False
+                    break
+                tok = m.tokens[0]
+                if tok.startswith('אבו-') or tok == 'אבו':
+                    all_singleton = False  # Kunya = specific, not common name
+                    break
+            if all_singleton:
+                cube2_match = self._cube2_without_entity_id(cube2_match)
+                if 'singleton_entity_id_stripped' not in cluster.flags:
+                    cluster.flags.append('singleton_entity_id_stripped')
+
         if (cube2_match and self._cube2_is_confident(cube2_match)
             and self._cube2_phonebook_eligible(cube2_match, eligibility_phone)
             and not phonebook_blocked_by_ambiguity
