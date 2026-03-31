@@ -4029,17 +4029,22 @@ class Cube2Matcher:
             t2 = set(t2_norm.split())
             shorter_len = min(len(t1), len(t2))
 
+            # Compute weighted score based on token overlap quality
             if token_ratio >= 0.99:
                 if t1.issubset(t2) or t2.issubset(t1):
                     if shorter_len >= 2:
-                        return 0.1 * ratio + 0.9 * token_ratio
-                return 0.2 * ratio + 0.8 * token_ratio
+                        score = 0.1 * ratio + 0.9 * token_ratio
+                    else:
+                        score = 0.2 * ratio + 0.8 * token_ratio
+                else:
+                    score = 0.2 * ratio + 0.8 * token_ratio
             elif token_ratio >= 0.90:
-                return 0.2 * ratio + 0.8 * token_ratio
-            score = 0.5 * ratio + 0.5 * token_ratio
+                score = 0.2 * ratio + 0.8 * token_ratio
+            else:
+                score = 0.5 * ratio + 0.5 * token_ratio
 
-            # Singleton hard cap: prevents entity_id bypass (0.92) and
-            # high-score corroboration for single-token matches
+            # Fix 32.1b: Singleton hard cap — applies to ALL paths above.
+            # A singleton must NEVER score ≥0.92 against any contact.
             if shorter_len <= 1:
                 return min(0.85, score)
             return score
