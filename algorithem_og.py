@@ -6209,54 +6209,41 @@ class EntityResolver:
                 return False  # Too short to be meaningful
 
             # Fix 31.6: Block kunya singletons from cross-phone bridging.
-            # Kunyas like "אבו-אחמד" (Abu Ahmed) are extremely common — thousands of
-            # unrelated people share them. They pass the length check (>=5 chars) and
-            # match other_sig.last_tokens (self-match for 1-token clusters), but provide
-            # zero identity evidence. Must check BEFORE last_tokens to prevent early return.
             if singleton_token.startswith('אבו-'):
                 return False
 
-            # Safe if it matches a last token in the other sig (family name match)
-            # Apply phonetic normalization for consistent matching with normalized last_tokens
             singleton_phonetic = normalize_arabic_phonetic(singleton_token)
-            if singleton_phonetic in other_sig.last_tokens:
-                return True
 
-            # Block common names from acting as bridges - they're too ambiguous
-            # Fix 29.39: Use phonetically normalized token against normalized set
-            # This ensures phonetic variants like 'אלי' (Ali with Alef) are blocked
-            # even though COMMON_SINGLETONS contains 'עלי' (Ali with Ayin)
-            # Fix 31.7: Also check the broader COMMON_ARABIC_GIVEN_NAMES set
-            # to catch names like 'אברהם' (5 chars) that pass the length fallback
+            # Fix 32.4: Check common names BEFORE last_tokens early return.
+            # Previously, last_tokens (line 6222) returned True before common name
+            # check could block. This allowed "חאלד" to bridge when "אבו חאלד"
+            # existed in the other cluster's names (putting "חאלד" in last_tokens).
+            # Common given names are never safe as singleton bridges regardless of
+            # whether they appear as last tokens — they're too ambiguous.
             if singleton_phonetic in COMMON_SINGLETONS_NORMALIZED or singleton_phonetic in COMMON_GIVEN_NORMALIZED:
                 return False
 
-            # Fix 26.9: Check GLOBAL ambiguity instead of length heuristic
-            # A token is globally ambiguous if it maps to multiple distinct head signatures
-            # across ALL phones (not just same phone). This prevents "Israel" from bridging
-            # "Israel Cohen" (Phone A) and "Israel Levi" (Phone B).
-            #
-            # Fix 27.5: Distinguish between "proven unique" (1 signature) and "unknown" (0 signatures)
-            # AmbiguityGate only tracks tokens from multi-token mentions, so a name that ONLY
-            # appears as singleton (e.g., "עלי" - Ali) has 0 signatures. Treating 0 as "safe" was wrong -
-            # it allowed short common Arabic names to act as bridges. Now:
+            # Safe if it matches a last token in the other sig (family name match).
+            # Only reached by NON-common names (rare family names, distinctive tokens).
+            if singleton_phonetic in other_sig.last_tokens:
+                return True
+
+            # Fix 26.9 + 27.5: Check GLOBAL ambiguity via AmbiguityGate.
             # - >1 signatures: proven ambiguous → block
             # - ==1 signature: proven unique → allow
-            # - ==0 signatures: unknown → fall back to length check (be conservative)
+            # - ==0 signatures: unknown → fall back to length check
             if ambiguity_gate:
                 all_signatures: Set[str] = set()
-                # Fix 27.6: Apply phonetic normalization to lookup key
-                # Must match the normalization used when building the index
                 token_key = normalize_arabic_phonetic(singleton_token)
                 for phone, token_sigs in ambiguity_gate.phone_token_signatures.items():
                     if token_key in token_sigs:
                         all_signatures.update(token_sigs[token_key])
 
                 if len(all_signatures) > 1:
-                    return False  # Globally ambiguous - unsafe as bridge
+                    return False  # Globally ambiguous
 
                 if len(all_signatures) == 1:
-                    return True  # Proven unique across all phones - safe to use
+                    return True  # Proven unique across all phones
 
             # Fall back to length heuristic when:
             # - No ambiguity_gate available, OR
