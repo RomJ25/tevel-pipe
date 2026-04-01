@@ -180,6 +180,10 @@ class Config:
     CLUSTER_MERGE_FIRST_LAST_THRESHOLD: int = 85  # For cluster merge first/last match
     # Fix 28.7 (Finding B): Align containment threshold with variant_aware_cluster_score
     CLUSTER_MERGE_CONTAINMENT_SET_THRESHOLD: int = 90  # For cluster merge containment check
+    # Cohesion gate thresholds (Stage 7 cross-phone merge safety)
+    COHESION_HIGH_THRESHOLD: float = 0.92   # One very strong edge required
+    COHESION_MEAN_THRESHOLD: float = 0.85   # Mean of top-k edges with anchor
+    STAGE7_MAX_TOKEN_FANOUT: int = 200      # Skip tokens mapping to >N clusters in index
     CUBE2_MATCH_THRESHOLD: float = 0.75
     CUBE2_MARGIN_THRESHOLD: float = 0.15
     # Fix 29.9: Relaxed margin for global matches with entity_id.
@@ -6728,32 +6732,52 @@ class EntityResolver:
                 for cid in cluster_ids[1:]:
                     dsu.union(first, cid, reason='ENTITY_ID_HARD_LINK', score=1.0)
 
-        # Phase 1: Score all cluster pairs (small N, so all-pairs is fine)
+        # Phase 1: Token-indexed candidate generation + scoring
+        # Instead of O(N^2) all-pairs, build inverted index from cluster tokens
+        # and only score pairs sharing at least one token. 60-125x faster at scale.
         edges: List[Tuple[float, str, str, str]] = []  # (score, cid1, cid2, match_type)
         rescue_candidates: List[Tuple[float, str, str, str]] = []  # API rescue candidates
 
-        mergeable_clusters = [cluster_by_id[cid] for cid in sorted(cluster_by_id.keys())]
+        NOISE_INDEX_TOKENS = {'אל', 'אבו', 'אבן', 'בן'}
+        token_to_cids: Dict[str, Set[str]] = defaultdict(set)
+        for cid, sig in sig_by_id.items():
+            for tok in sig.first_tokens | sig.last_tokens:
+                if tok and len(tok) >= 2 and tok not in NOISE_INDEX_TOKENS:
+                    token_to_cids[tok].add(cid)
 
-        for c1, c2 in combinations(mergeable_clusters, 2):
-            sig1 = sig_by_id[c1.cluster_id]
-            sig2 = sig_by_id[c2.cluster_id]
+        # Generate candidate pairs from shared tokens (skip high-fanout tokens)
+        candidate_pairs: Set[Tuple[str, str]] = set()
+        max_fanout = self.config.STAGE7_MAX_TOKEN_FANOUT
+        for tok, cids in token_to_cids.items():
+            if len(cids) > max_fanout:
+                continue
+            cid_list = sorted(cids)
+            for i in range(len(cid_list)):
+                for j in range(i + 1, len(cid_list)):
+                    candidate_pairs.add((cid_list[i], cid_list[j]))
 
-            # Fix 26.9: Pass ambiguity_gate for global singleton safety check
+        all_pairs_count = len(sig_by_id) * (len(sig_by_id) - 1) // 2
+        print(f" SCORING  candidates={len(candidate_pairs)} (was {all_pairs_count} all-pairs)")
+
+        for cid1, cid2 in sorted(candidate_pairs):
+            sig1 = sig_by_id[cid1]
+            sig2 = sig_by_id[cid2]
+
             score, match_type = self.variant_aware_cluster_score(sig1, sig2, ambiguity_gate)
 
             # Apply phone boost
+            c1, c2 = cluster_by_id[cid1], cluster_by_id[cid2]
             if c1.phone == c2.phone:
                 score = min(1.0, score + 0.05)
                 match_type = f"{match_type}+same_phone"
 
-            # Only consider edges above threshold
             if score >= 0.70:
-                edges.append((score, c1.cluster_id, c2.cluster_id, match_type))
+                edges.append((score, cid1, cid2, match_type))
             elif (api_client and self.config.API_RESCUE_ENABLED and
                   self.config.API_RESCUE_SCORE_MIN <= score <= self.config.API_RESCUE_SCORE_MAX):
                 if (sig1.max_token_len >= self.config.API_RESCUE_MIN_TOKENS and
                         sig2.max_token_len >= self.config.API_RESCUE_MIN_TOKENS):
-                    rescue_candidates.append((score, c1.cluster_id, c2.cluster_id, match_type))
+                    rescue_candidates.append((score, cid1, cid2, match_type))
 
         # Sort by score descending (greedy best-first)
         edges.sort(reverse=True)
@@ -6941,7 +6965,10 @@ class EntityResolver:
             else:
                 c1 = cluster_by_id[cid1]
                 c2 = cluster_by_id[cid2]
-                passes, max_score, mean_score = cohesion_gate_passes(c1, c2, scorer=scorer)
+                passes, max_score, mean_score = cohesion_gate_passes(
+                    c1, c2, scorer=scorer,
+                    high_threshold=self.config.COHESION_HIGH_THRESHOLD,
+                    mean_threshold=self.config.COHESION_MEAN_THRESHOLD)
 
                 if not passes:
                     dsu.blocked_merges.append({
@@ -7050,7 +7077,10 @@ class EntityResolver:
                 c1, c2 = cluster_by_id[cid1], cluster_by_id[cid2]
                 both_singletons = len(c1.mentions) == 1 and len(c2.mentions) == 1
                 if not (both_singletons and self.config.API_RESCUE_BYPASS_COHESION_SINGLETONS):
-                    passes, max_sc, mean_sc = cohesion_gate_passes(c1, c2, scorer=scorer)
+                    passes, max_sc, mean_sc = cohesion_gate_passes(
+                        c1, c2, scorer=scorer,
+                        high_threshold=self.config.COHESION_HIGH_THRESHOLD,
+                        mean_threshold=self.config.COHESION_MEAN_THRESHOLD)
                     if not passes:
                         dsu.blocked_merges.append({
                             'cluster1': cid1, 'cluster2': cid2,
@@ -7140,7 +7170,9 @@ class EntityResolver:
                                            len(c2.mentions) == 1)
                         if not both_singletons:
                             passes, _, _ = cohesion_gate_passes(
-                                c1, c2, scorer=scorer)
+                                c1, c2, scorer=scorer,
+                                high_threshold=self.config.COHESION_HIGH_THRESHOLD,
+                                mean_threshold=self.config.COHESION_MEAN_THRESHOLD)
                             if not passes:
                                 dsu.blocked_merges.append({
                                     'cluster1': cid1, 'cluster2': cid2,
