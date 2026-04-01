@@ -184,6 +184,8 @@ class Config:
     COHESION_HIGH_THRESHOLD: float = 0.92   # One very strong edge required
     COHESION_MEAN_THRESHOLD: float = 0.85   # Mean of top-k edges with anchor
     STAGE7_MAX_TOKEN_FANOUT: int = 200      # Skip tokens mapping to >N clusters in index
+    RAW_SCORE_FLOOR_NO_ENTITY: float = 0.82 # Min raw score for 0.95 wall (no entity_id)
+    RAW_SCORE_FLOOR_WITH_ENTITY: float = 0.75  # Min raw score for 0.90 wall (with entity_id)
     CUBE2_MATCH_THRESHOLD: float = 0.75
     CUBE2_MARGIN_THRESHOLD: float = 0.15
     # Fix 29.9: Relaxed margin for global matches with entity_id.
@@ -772,6 +774,7 @@ class Cube2Match:
     second_score: float
     margin: float
     entity_id: Optional[str] = None
+    raw_score: float = 0.0  # Score before _score_contact boosts
 
     # v9 additions (for cube2-first-class usage)
     # contact_key is stable within a phone and is used for intra-phone bridging.
@@ -813,6 +816,7 @@ class EntityCluster:
     cross_phone_links: List[Dict[str, str]] = field(default_factory=list)
     global_entity_id: str = ''  # Fix 2.2: Cross-phone unified identity
     verified_entity_id: Optional[str] = None  # Entity ID from cube1 or cube2
+    entity_id_is_hard: bool = True  # False = soft (Stage 6.2 API, kunya alias) — skip Phase 0 hard-link
     verified_status: Optional[str] = None  # Entity status from cube1/cube2
     verified_id_number: Optional[str] = None  # Entity id_number from cube1/cube2
     merge_reason: str = ''  # v8: Explains WHY this cluster joined its global entity
@@ -2333,6 +2337,7 @@ class IdentitySignature:
 
     # Entity ID for hard linking (highest priority)
     verified_entity_id: Optional[str] = None
+    entity_id_is_hard: bool = True  # False = soft (Stage 6.2 API, kunya alias)
     phonebook_quality: str = ''  # LOW / MED / HIGH (v9)
 
     # Strong-ish evidence
@@ -2718,10 +2723,12 @@ class Cube2Matcher:
         second_score = 0.0
         best_nickname = None
 
+        best_raw_score = 0.0
         for contact in contacts:
-            score, nickname = self._score_contact(contact, mention_texts)
+            score, nickname, contact_raw = self._score_contact(contact, mention_texts)
             if score > best_score:
                 second_score = best_score
+                best_raw_score = contact_raw
                 best_score = score
                 best_contact = contact
                 best_nickname = nickname
@@ -2745,6 +2752,7 @@ class Cube2Matcher:
             second_score=capped_second,
             margin=margin,  # Keep uncapped margin for confident gate
             entity_id=best_contact.get('entity_id'),
+            raw_score=best_raw_score,
             contact_key=best_contact.get('contact_key'),
             name_normalized=best_contact.get('name_normalized', ''),
             tokens=list(best_contact.get('tokens') or []),
@@ -2912,11 +2920,11 @@ class Cube2Matcher:
         # producing margin=0 which blocks entity_id propagation. We fix this by:
         # 1. Preferring the contact WITH entity_id when two score equally
         # 2. Computing margin only against contacts with DIFFERENT normalized names
-        scored_contacts: List[Tuple[float, bool, Dict, Optional[str]]] = []
+        scored_contacts: List[Tuple[float, bool, Dict, Optional[str], float]] = []
         for contact in candidate_contacts:
-            score, nickname = self._score_contact(contact, mention_texts)
+            score, nickname, contact_raw = self._score_contact(contact, mention_texts)
             has_eid = bool(contact.get('entity_id'))
-            scored_contacts.append((score, has_eid, contact, nickname))
+            scored_contacts.append((score, has_eid, contact, nickname, contact_raw))
 
         if not scored_contacts:
             return None
@@ -2924,7 +2932,7 @@ class Cube2Matcher:
         # Sort by score descending, then prefer entity_id (True > False)
         scored_contacts.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
-        best_score_val, _, best_contact, best_nickname = scored_contacts[0]
+        best_score_val, _, best_contact, best_nickname, best_raw = scored_contacts[0]
 
         if best_contact is None:
             return None
@@ -2945,7 +2953,7 @@ class Cube2Matcher:
 
         best_name_norm = normalize_for_dedup(best_contact.get('name_normalized', ''))
         second_score = 0.0
-        for sc, _, cont, _ in scored_contacts[1:]:
+        for sc, _, cont, _, _ in scored_contacts[1:]:
             cont_name_norm = normalize_for_dedup(cont.get('name_normalized', ''))
             if cont_name_norm != best_name_norm:
                 second_score = sc
@@ -2961,6 +2969,14 @@ class Cube2Matcher:
         # If no entity_id, require even higher score
         if not best_contact.get('entity_id') and best_score < self.config.GLOBAL_MATCH_NO_ENTITY_THRESHOLD:
             return None
+
+        # Raw-score floor: prevent boost stacking from pushing weak matches over walls
+        if best_contact.get('entity_id'):
+            if best_raw < self.config.RAW_SCORE_FLOOR_WITH_ENTITY:
+                return None
+        else:
+            if best_raw < self.config.RAW_SCORE_FLOOR_NO_ENTITY:
+                return None
 
         margin = best_score - second_score
 
@@ -3111,6 +3127,7 @@ class Cube2Matcher:
             second_score=capped_second,
             margin=margin,  # Keep uncapped margin for confident gate
             entity_id=best_contact.get('entity_id'),
+            raw_score=best_raw,
             contact_key=best_contact.get('contact_key'),
             name_normalized=best_contact.get('name_normalized', ''),
             tokens=list(best_contact.get('tokens') or []),
@@ -3346,10 +3363,10 @@ class Cube2Matcher:
         score = float(effective_non_generic_count) - 0.10 * float(effective_generic_count)
         return tier, max(score, 0.0)
 
-    def _score_contact(self, contact: Dict[str, Any], mention_texts: List[str]) -> Tuple[float, Optional[str]]:
+    def _score_contact(self, contact: Dict[str, Any], mention_texts: List[str]) -> Tuple[float, Optional[str], float]:
         """Score a contact against a list of mention texts.
 
-        Returns (best_score, best_matching_nickname_or_None).
+        Returns (best_score, best_matching_nickname_or_None, raw_score).
 
         Fix 26.1: Nickname Hijack Protection - When the best match is via nickname,
         validates that the phonebook's main name is consistent with the cluster's
@@ -3390,6 +3407,8 @@ class Cube2Matcher:
         else:
             best = main_score
             matched_nickname = None
+
+        raw_score = best  # Before any boosts — used for raw-score floor check
 
         # Fix 29.28: Unique Nickname Scoring Bonus
         # When the cluster CONTAINS a UNIQUE nickname (only this contact has it),
@@ -3783,9 +3802,9 @@ class Cube2Matcher:
         # If match is via nickname, verify phonebook main name doesn't conflict with cluster's full names
         if matched_nickname and best >= 0.75:
             if self._detect_nickname_hijack(contact, mention_texts):
-                return 0.0, None  # Reject match due to family name conflict
+                return 0.0, None, 0.0  # Reject match due to family name conflict
 
-        return best, matched_nickname
+        return best, matched_nickname, raw_score
 
     def _detect_nickname_hijack(self, contact: Dict[str, Any], mention_texts: List[str]) -> bool:
         """Detect if a nickname match would hijack the cluster identity (Fix 26.1).
@@ -4712,7 +4731,16 @@ def cohesion_gate_passes(
             is_kunya_match = _is_kunya_only_mention(m1) and _is_kunya_only_mention(m2)
             kunya_toks_1 = _get_kunya_token_set(m1.tokens)
             kunya_toks_2 = _get_kunya_token_set(m2.tokens)
-            shared_tokens = set(m1.tokens) & set(m2.tokens)
+            # Phonetic normalization + al-strip for overlap detection
+            # so "אלברביר" matches "ברביר" (same family, al-prefix difference)
+            def _norm_tok(t):
+                t = normalize_arabic_phonetic(t)
+                if t.startswith('אל') and len(t) > 2:
+                    t = t[2:]
+                return t
+            norm1 = {_norm_tok(t) for t in m1.tokens}
+            norm2 = {_norm_tok(t) for t in m2.tokens}
+            shared_tokens = norm1 & norm2
             is_kunya_dominant = (len(shared_tokens) > 0 and
                                  shared_tokens <= (kunya_toks_1 | kunya_toks_2))
             score_details.append((score, is_kunya_match, is_kunya_dominant))
@@ -5208,6 +5236,7 @@ class EntityResolver:
 
                 chosen_eid = next(iter(candidate_eids))
                 c.verified_entity_id = chosen_eid
+                c.entity_id_is_hard = False  # Kunya alias inference = soft
                 anchor_meta = eid_to_metadata.get(chosen_eid, (None, None))
                 if not c.verified_status:
                     c.verified_status = anchor_meta[0]
@@ -6060,6 +6089,7 @@ class EntityResolver:
             phone=cluster.phone,
             resolution_type=cluster.resolution_type,
             verified_entity_id=cluster.verified_entity_id,
+            entity_id_is_hard=getattr(cluster, 'entity_id_is_hard', True),
             phonebook_quality=getattr(cluster, 'phonebook_quality', ''),
             verified_names=verified_names,
             verified_nicknames=verified_nicks,
@@ -6563,6 +6593,7 @@ class EntityResolver:
             # 5G: Attachment mechanics (DIRECT MUTATION — no re-resolve)
             if decision == 'ATTACH':
                 cand_cluster.verified_entity_id = best_anchor_eid
+                cand_cluster.entity_id_is_hard = False  # API-based = soft
                 cand_cluster.flags.append('yanis_anchor_attached')
                 if cand_cluster.match_evidence:
                     cand_cluster.match_evidence += f';yanis_anchor(api={best_s2s:.0f},anchor={best_anch_cid})'
@@ -6720,13 +6751,17 @@ class EntityResolver:
             dsu.make_set(cid, entity_id=c.verified_entity_id, blocked=blocked_cluster_ids)
 
         # Phase 0: Hard-link by verified_entity_id (highest priority)
-        by_entity_id: Dict[str, List[str]] = defaultdict(list)
+        # Only hard-link HARD entity_ids (cube1, phonebook direct match).
+        # SOFT entity_ids (Stage 6.2 API, kunya alias) go through Phase 2 scoring.
+        by_entity_id_hard: Dict[str, List[str]] = defaultdict(list)
+        soft_entity_pairs: List[Tuple[str, str, str]] = []  # (eid, soft_cid, hard_cid)
         for cid, sig in sig_by_id.items():
             if sig.verified_entity_id:
-                by_entity_id[sig.verified_entity_id].append(cid)
+                if sig.entity_id_is_hard:
+                    by_entity_id_hard[sig.verified_entity_id].append(cid)
 
-        for eid in sorted(by_entity_id.keys()):
-            cluster_ids = sorted(by_entity_id[eid])
+        for eid in sorted(by_entity_id_hard.keys()):
+            cluster_ids = sorted(by_entity_id_hard[eid])
             if len(cluster_ids) >= 2:
                 first = cluster_ids[0]
                 for cid in cluster_ids[1:]:
