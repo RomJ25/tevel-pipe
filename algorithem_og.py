@@ -6350,6 +6350,26 @@ class EntityResolver:
             else self.config.CROSS_PHONE_UNVERIFIED_CONTAINMENT_SET_THRESHOLD
         )
 
+        # Fix 32.5b: Family divergence guard for cross-phone scoring.
+        # "מחמד אלמסרי" vs "מחמד אלנסרי" scores 90.9% (above anchor 85).
+        # Without this guard, the pair enters Phase 2, API confirms at ~90+,
+        # cohesion gate bypassed → false merge. Applied to ALL return paths.
+        if best_pair:
+            bp1, bp2 = best_pair
+            bp1_toks = normalize_arabic_phonetic(bp1).split()
+            bp2_toks = normalize_arabic_phonetic(bp2).split()
+            if len(bp1_toks) >= 2 and len(bp2_toks) >= 2:
+                giv_sim = _char_ratio(bp1_toks[0], bp2_toks[0])
+                fam1 = bp1_toks[-1]
+                fam2 = bp2_toks[-1]
+                if fam1.startswith('אל') and len(fam1) > 2:
+                    fam1 = fam1[2:]
+                if fam2.startswith('אל') and len(fam2) > 2:
+                    fam2 = fam2[2:]
+                fam_sim = _char_ratio(fam1, fam2)
+                if giv_sim >= 85 and fam_sim < 85:
+                    return 0.50, 'family_divergence_blocked'
+
         if best_sort >= sort_threshold:
             return best_sort / 100.0, f'high_sort{"_anchor" if is_anchor_pair else ""}'
         elif first_overlap and last_overlap:
