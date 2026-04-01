@@ -7880,6 +7880,27 @@ class EntityResolver:
                 if best_v_ratio < 85:
                     return False
 
+        # Fix 32.5: Family divergence guard for Stage 6.5 canonical merge.
+        # "מחמד אלמסרי" vs "מחמד אלנסרי" scores 90.9% token_sort_ratio
+        # (above 88 threshold) but they are DIFFERENT people.
+        # Check: if both have 2+ tokens, given names match (>=85%),
+        # but family names DIFFER (<85% after al-strip), block the merge.
+        toks1_ph = name1_phonetic.split()
+        toks2_ph = name2_phonetic.split()
+        if len(toks1_ph) >= 2 and len(toks2_ph) >= 2:
+            given_sim = _char_ratio(toks1_ph[0], toks2_ph[0])
+            # Strip al-prefix before comparing families so
+            # "אלברביר" vs "ברביר" (same person) aren't blocked
+            fam1 = toks1_ph[-1]
+            fam2 = toks2_ph[-1]
+            if fam1.startswith('אל') and len(fam1) > 2:
+                fam1 = fam1[2:]
+            if fam2.startswith('אל') and len(fam2) > 2:
+                fam2 = fam2[2:]
+            family_sim = _char_ratio(fam1, fam2)
+            if given_sim >= 85 and family_sim < 85:
+                return False  # Same given name, different family = different person
+
         # High similarity on canonicals (using phonetic normalization from Fix 20.4)
         if _token_sort_ratio(name1_phonetic, name2_phonetic) >= cfg.CLUSTER_MERGE_SORT_THRESHOLD:
             return True
